@@ -3,18 +3,19 @@ Dancing with the SARs — Myanmar SAR Change Detector
 + featured case study: 2025 Sagaing Fault earthquake (Myanmar)
 
 Run:  streamlit run app.py
-Needs: pip install streamlit streamlit-folium earthengine-api folium rasterio numpy matplotlib
+Needs: pip install streamlit streamlit-folium earthengine-api folium rasterio numpy matplotlib pandas
 """
 import os
 import json
 import datetime as dt
 import numpy as np
+import pandas as pd
 import streamlit as st
 import ee
 import folium
 from streamlit_folium import st_folium
 
-# ============ FILL THESE IN ============
+# ============ CONFIGURATION ============
 GEE_PROJECT = "engaged-oarlock-432211-q9"
 IFG_TIF     = "data/geo.unw.tif"     # optional: LiCSAR interferogram for the Sagaing case study
 NISAR_PNG   = "data/nisar.png"       # optional: NISAR sample PNG
@@ -27,7 +28,82 @@ MYANMAR_MIN_LON, MYANMAR_MAX_LON = 92.1, 101.2
 MYANMAR_CENTER = (21.0, 96.0)
 # =======================================
 
-st.set_page_config(page_title="Dancing with the SARs — Myanmar", page_icon="🛰️", layout="wide")
+st.set_page_config(
+    page_title="Dancing with the SARs — Myanmar",
+    page_icon="🛰️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom Styling (Glassmorphism, Modern Typography, Sleek Badges)
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+h1, h2, h3, h4, .stTitle {
+    font-family: 'Outfit', sans-serif !important;
+    letter-spacing: -0.02em;
+}
+
+/* Glassmorphic cards */
+.metric-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(8px);
+}
+
+.legend-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #0000ff 0%, #ffffff 50%, #ff0000 100%);
+    margin: 8px 0;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.fringe-bar {
+    display: flex;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #ff0000 0%, #ffff00 20%, #00ff00 40%, #00ffff 60%, #0000ff 80%, #ff00ff 100%);
+    margin: 8px 0;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 6px;
+    margin-bottom: 6px;
+}
+.badge-active { background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); }
+.badge-info { background: rgba(0, 176, 255, 0.15); color: #00b0ff; border: 1px solid rgba(0, 176, 255, 0.3); }
+.badge-warning { background: rgba(255, 171, 0, 0.15); color: #ffab00; border: 1px solid rgba(255, 171, 0, 0.3); }
+
+/* Quick scenario buttons */
+div[data-testid="stSidebar"] button {
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+div[data-testid="stSidebar"] button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 176, 255, 0.25);
+}
+</style>
+""", unsafe_allow_html=True)
 
 @st.cache_resource
 def init_ee():
@@ -37,8 +113,8 @@ try:
     init_ee()
 except Exception as e:
     st.error(f"Google Earth Engine failed to initialise (project: `{GEE_PROJECT}`).\n\n"
-             "1. Set `GEE_PROJECT` at the top of app.py to your GEE-registered Cloud project ID.\n"
-             "2. Run `earthengine authenticate` once in a terminal.\n\n"
+             "1. Ensure your Google Cloud account is granted access to the project.\n"
+             "2. Run `earthengine authenticate` in your terminal.\n\n"
              f"Details: {e}")
     st.stop()
 
@@ -54,43 +130,74 @@ if "last_click" not in st.session_state:
     st.session_state.last_click = None   # last map click already handled (st_folium repeats it every rerun)
 
 # ---------- Sidebar ----------
-st.sidebar.title("🛰️ Myanmar SAR Change Detector")
-st.sidebar.caption("Click anywhere in Myanmar. Radar compares before vs after.")
+st.sidebar.title("🛰️ Myanmar SAR Monitor")
+st.sidebar.caption("All-weather radar observation across Myanmar using microwave backscatter and interferometry.")
 
-st.sidebar.markdown("**Quick Preset Locations**")
-col_b1, col_b2 = st.sidebar.columns(2)
-if col_b1.button("⭐ Mandalay (Quake)"):
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎯 Quick Scenarios")
+
+col_sc1, col_sc2 = st.sidebar.columns(2)
+if col_sc1.button("🌋 Mandalay Quake", use_container_width=True):
     st.session_state.pin = (21.97, 96.08)
     st.session_state.dates = (dt.date(2025, 3, 1), dt.date(2025, 3, 27),
                               dt.date(2025, 3, 29), dt.date(2025, 4, 20))
     st.session_state.outside_warning = False
     st.rerun()
 
-if col_b2.button("📍 Yangon"):
+if col_sc2.button("🏙️ Yangon Delta", use_container_width=True):
     st.session_state.pin = (16.8661, 96.1951)
+    st.session_state.dates = (dt.date(2025, 3, 1), dt.date(2025, 3, 27),
+                              dt.date(2025, 3, 29), dt.date(2025, 4, 20))
     st.session_state.outside_warning = False
     st.rerun()
 
-if st.sidebar.button("📍 Naypyidaw"):
+if st.sidebar.button("🏛️ Naypyidaw Capital Corridor", use_container_width=True):
     st.session_state.pin = (19.7633, 96.0785)
+    st.session_state.dates = (dt.date(2025, 3, 1), dt.date(2025, 3, 27),
+                              dt.date(2025, 3, 29), dt.date(2025, 4, 20))
     st.session_state.outside_warning = False
     st.rerun()
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📅 Temporal Windows")
 d = st.session_state.dates
-b1 = st.sidebar.date_input("Before: from", d[0])
-b2 = st.sidebar.date_input("Before: to", d[1])
-a1 = st.sidebar.date_input("After: from", d[2])
-a2 = st.sidebar.date_input("After: to", d[3])
+b1 = st.sidebar.date_input("Before: start", d[0])
+b2 = st.sidebar.date_input("Before: end", d[1])
+a1 = st.sidebar.date_input("After: start", d[2])
+a2 = st.sidebar.date_input("After: end", d[3])
 st.session_state.dates = (b1, b2, a1, a2)
 
-radius_km = st.sidebar.slider("Analysis radius (km)", 1, 10, 5)
-thresh_db = st.sidebar.slider("Change threshold (dB)", 1.5, 6.0, 3.0, 0.5)
+st.sidebar.markdown("### ⚙️ Analysis Parameters")
+radius_km = st.sidebar.slider("Analysis radius (km)", 1, 10, 5, help="Radius around the pin to buffer and calculate change statistics.")
+thresh_db = st.sidebar.slider("Change threshold (±dB)", 1.5, 6.0, 3.0, 0.5, help="Threshold backscatter deviation in decibels to classify surface alteration.")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🛰️ Optional Map Overlays")
 
 has_ifg = os.path.exists(IFG_TIF)
-show_ifg = st.sidebar.checkbox("Show earthquake interferogram (case study)", value=False) if has_ifg else False
+show_ifg = st.sidebar.checkbox(
+    "🌈 LiCSAR Earthquake Fringes",
+    value=False,
+    disabled=not has_ifg,
+    help="Displays unwrapped phase interferogram for the 2025 Sagaing Fault rupture (24 Mar – 5 Apr 2025)."
+) if has_ifg else False
 
 has_nisar = os.path.exists(NISAR_PNG) and os.path.exists(NISAR_JSON)
-show_nisar = st.sidebar.checkbox("Show NISAR L-band sample layer", value=False) if has_nisar else False
+show_nisar = st.sidebar.checkbox(
+    "📡 NISAR L-Band Sample Layer",
+    value=False,
+    disabled=not has_nisar,
+    help="Displays NASA-ISRO NISAR L-band sample backscatter acquired 4 Oct 2026."
+) if has_nisar else False
+
+# Status Pills in Sidebar
+st.sidebar.markdown("""
+<div style='margin-top: 15px;'>
+    <span class='status-badge badge-active'>● Sentinel-1 Operational</span>
+    """ + (f"<span class='status-badge badge-info'>● LiCSAR Loaded</span>" if has_ifg else "") + """
+    """ + (f"<span class='status-badge badge-warning'>● NISAR Sample Ready</span>" if has_nisar else "") + """
+</div>
+""", unsafe_allow_html=True)
 
 # ---------- GEE analysis ----------
 def s1_median(roi, start, end):
@@ -100,7 +207,7 @@ def s1_median(roi, start, end):
             .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
             .select("VV"))
 
-@st.cache_data(show_spinner="Running radar analysis…")
+@st.cache_data(show_spinner="Computing satellite radar change across Myanmar…")
 def analyze(lat, lon, r_km, b1, b2, a1, a2, t):
     roi = ee.Geometry.Point([lon, lat]).buffer(r_km * 1000)
     bc, ac = s1_median(roi, b1, b2), s1_median(roi, a1, a2)
@@ -160,20 +267,20 @@ def load_nisar(png_path, json_path):
         meta = json.load(fp)
     return img, meta["bounds"]
 
-# ---------- Layout ----------
-st.title("Dancing with the SARs — Myanmar")
-st.caption("Satellite radar sees through clouds, day and night. Drop a pin anywhere in Myanmar to detect surface change.")
+# ---------- Main View ----------
+st.title("🛰️ Dancing with the SARs — Myanmar")
+st.markdown("##### Cloud-Penetrating Synthetic Aperture Radar (SAR) Surface Change Detection")
 
 if st.session_state.get("outside_warning"):
-    st.warning("⚠️ That click was outside Myanmar. Please drop a pin within Myanmar boundaries (lat 9.5°–28.6° N, lon 92.1°–101.2° E).")
+    st.warning("⚠️ The clicked location was outside Myanmar. The map is constrained to Myanmar territory (lat 9.5°–28.6° N, lon 92.1°–101.2° E).")
 
 col_map, col_stats = st.columns([7, 3])
 
 with col_map:
-    # Myanmar lock: center 21.0, 96.0, zoom 6, bounds constrained
+    # Leaflet Map with Myanmar Geographical Lock
     m = folium.Map(
         location=[lat, lon],
-        zoom_start=6,
+        zoom_start=7,
         min_zoom=5,
         max_bounds=True,
         min_lat=MYANMAR_MIN_LAT,
@@ -185,8 +292,13 @@ with col_map:
 
     if res["ok"]:
         for name, url in res["tiles"].items():
-            folium.TileLayer(url, attr="Copernicus Sentinel-1 via Google Earth Engine",
-                             name=name, overlay=True, show=name.startswith("Change")).add_to(m)
+            folium.TileLayer(
+                url,
+                attr="Copernicus Sentinel-1 via Google Earth Engine",
+                name=name,
+                overlay=True,
+                show=name.startswith("Change")
+            ).add_to(m)
 
     # Optional LiCSAR interferogram
     if has_ifg:
@@ -194,7 +306,7 @@ with col_map:
         folium.raster_layers.ImageOverlay(
             img_ifg,
             bounds=bounds_ifg,
-            opacity=0.7,
+            opacity=0.75,
             mercator_project=True,
             name="Earthquake interferogram (fringes)",
             show=show_ifg
@@ -213,8 +325,22 @@ with col_map:
             attr="NASA-ISRO NISAR via ASF"
         ).add_to(m)
 
-    folium.Circle([lat, lon], radius=radius_km * 1000, color="#ffcc00", fill=False, weight=2).add_to(m)
-    folium.Marker([lat, lon], tooltip=f"Selected: {lat:.4f}, {lon:.4f}").add_to(m)
+    folium.Circle(
+        [lat, lon],
+        radius=radius_km * 1000,
+        color="#00e676",
+        fill=True,
+        fill_color="#00e676",
+        fill_opacity=0.1,
+        weight=2
+    ).add_to(m)
+
+    folium.Marker(
+        [lat, lon],
+        tooltip=f"Selected Location: {lat:.4f}° N, {lon:.4f}° E",
+        icon=folium.Icon(color="red", icon="crosshairs", prefix="fa")
+    ).add_to(m)
+
     folium.LayerControl(collapsed=False).add_to(m)
 
     out = st_folium(m, height=620, use_container_width=True, returned_objects=["last_clicked"])
@@ -231,47 +357,130 @@ with col_map:
                 st.session_state.outside_warning = True
             st.rerun()
 
+    # Visual Legends beneath Map
+    st.markdown("""
+    <div style='background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px 16px; margin-top: 10px;'>
+        <div style='display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 500;'>
+            <span style='color: #448aff;'>◀ Darker (-dB: water, flat surfaces)</span>
+            <span style='color: #888;'>Neutral (0 dB: unchanged)</span>
+            <span style='color: #ff5252;'>Brighter (+dB: debris, upheaval) ▶</span>
+        </div>
+        <div class='legend-bar'></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if show_ifg and has_ifg:
+        st.markdown(f"""
+        <div style='background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px 16px; margin-top: 8px;'>
+            <div style='display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 500;'>
+                <span style='color: #ff5252;'>-π (Moving away)</span>
+                <span style='color: #00e676;'>Interferogram Phase: 1 Cycle ≈ {WAVELENGTH*100/2:.1f} cm Line-of-Sight</span>
+                <span style='color: #ff52ff;'>+π (Moving towards)</span>
+            </div>
+            <div class='fringe-bar'></div>
+        </div>
+        """, unsafe_allow_html=True)
+
 with col_stats:
-    st.subheader("📊 Estimated Change in Area")
-    st.write(f"📍 {lat:.4f}, {lon:.4f} · Radius {radius_km} km")
+    st.markdown(f"""
+    <div class='metric-card'>
+        <div style='font-size: 0.85rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em;'>Analysis Focal Region</div>
+        <div style='font-size: 1.25rem; font-weight: 600; margin-top: 4px;'>📍 {lat:.4f}° N, {lon:.4f}° E</div>
+        <div style='font-size: 0.9rem; color: #aaa; margin-top: 2px;'>Radius: <b>{radius_km} km</b> · Threshold: <b>±{thresh_db} dB</b></div>
+    </div>
+    """, unsafe_allow_html=True)
+
     if not res["ok"]:
-        st.error(f"No Sentinel-1 images found (before: {res['nb']}, after: {res['na']}). "
-                 "Widen the date ranges.")
+        st.error(f"No Sentinel-1 images found in this temporal window (before: {res['nb']}, after: {res['na']}). Try widening the date ranges.")
     else:
         tot = res["total"]
-        st.metric("Estimated brighter area (new structures, debris, rough ground)",
-                  f"{res['brighter']:.2f} km²", f"{100*res['brighter']/tot:.1f}% of area")
-        st.metric("Estimated darker area (water, flattened or smoothed surfaces)",
-                  f"{res['darker']:.2f} km²", f"{100*res['darker']/tot:.1f}% of area")
-        st.caption(f"Estimated from {res['nb']} before and {res['na']} after Sentinel-1 (ESA) images. Threshold ±{thresh_db} dB. All values are radar estimates, not ground truth surveys.")
+        brighter_pct = 100 * res["brighter"] / tot
+        darker_pct = 100 * res["darker"] / tot
+        unchanged = max(0, tot - res["brighter"] - res["darker"])
+        unchanged_pct = 100 * unchanged / tot
+
+        st.metric(
+            label="Estimated Brighter (Debris, Fissures, Structures)",
+            value=f"{res['brighter']:.2f} km²",
+            delta=f"{brighter_pct:.1f}% of region",
+            delta_color="inverse"
+        )
+
+        st.metric(
+            label="Estimated Darker (Water Inundation, Flattened)",
+            value=f"{res['darker']:.2f} km²",
+            delta=f"-{darker_pct:.1f}% of region",
+            delta_color="normal"
+        )
+
+        # Visual Area Breakdown Chart
+        chart_data = pd.DataFrame({
+            "Classification": ["Brighter (+dB)", "Darker (-dB)", "Unchanged"],
+            "Area (km²)": [round(res["brighter"], 2), round(res["darker"], 2), round(unchanged, 2)],
+        })
+
+        st.caption("Surface Change Proportional Breakdown:")
+        st.bar_chart(chart_data.set_index("Classification"), height=160, color="#00b0ff")
+
+        st.caption(f"Estimated from {res['nb']} before and {res['na']} after Sentinel-1 (ESA) passes. Values are satellite backscatter estimates, not ground-truth damage surveys.")
+
+        # Export Analysis Summary
+        summary_payload = {
+            "region": "Myanmar",
+            "pin": {"latitude": lat, "longitude": lon},
+            "radius_km": radius_km,
+            "threshold_db": thresh_db,
+            "temporal_window": {
+                "before": [str(b1), str(b2)],
+                "after": [str(a1), str(a2)]
+            },
+            "metrics": {
+                "total_area_km2": round(tot, 2),
+                "brighter_km2": round(res["brighter"], 2),
+                "darker_km2": round(res["darker"], 2),
+                "brighter_percentage": round(brighter_pct, 1),
+                "darker_percentage": round(darker_pct, 1)
+            },
+            "satellite_passes": {"before_count": res["nb"], "after_count": res["na"]}
+        }
+
+        st.download_button(
+            label="📥 Export Analysis Summary (JSON)",
+            data=json.dumps(summary_payload, indent=2),
+            file_name=f"sar_analysis_{lat:.2f}_{lon:.2f}.json",
+            mime="application/json",
+            use_container_width=True
+        )
 
     st.markdown("---")
-    with st.expander("How to read radar change", expanded=True):
+    with st.expander("📖 How to read radar backscatter change", expanded=False):
         st.write("""
-- Radar measures backscatter (how much signal bounces back).
-- **Brighter** = rougher or more vertical: new buildings, collapsed debris, cracked ground.
-- **Darker** = smoother: standing water, flattened areas.
-- Penetrates clouds and functions day or night — unlike optical satellites.
+- **Backscatter**: Measures the microwave radar intensity reflected back to the sensor.
+- **Brighter (+dB)**: Surface became rougher or more vertical (e.g. collapsed masonry, rubble, cracked earth, new structural surfaces).
+- **Darker (-dB)**: Surface became smoother or absorbed microwaves (e.g. standing water, smooth sediment, cleared ground).
+- **All-Weather Capability**: Penetrates dense clouds and darkness, delivering mission-critical situational awareness when optical satellites fail.
 """)
-    with st.expander("⭐ Case study: the Sagaing Fault"):
+
+    with st.expander("⭐ Case study: 2025 Sagaing Fault Earthquake", expanded=False):
         if has_ifg:
             st.write(f"""
-- **28 March 2025, M7.7**: Major strike-slip earthquake rupturing ~500 km of the Sagaing Fault.
-- The interferogram layer compares radar **phase** before and after (24 Mar – 5 Apr 2025).
-- **One colour cycle = {WAVELENGTH*100/2:.1f} cm** of ground movement toward/away from satellite line-of-sight.
-- This directly measures *how far the ground moved*, which brightness change alone cannot quantify.
+- **28 March 2025, M7.7**: Severe strike-slip event along Myanmar's central tectonic artery.
+- **Interferogram Phase (COMET LiCSAR)**: Spans 24 March – 5 April 2025, directly measuring the deformation field.
+- **Color Fringes**: Each complete colour cycle represents **{WAVELENGTH*100/2:.1f} cm** of relative line-of-sight displacement.
+- Phase maps *ground displacement distance*, whereas amplitude measures *surface roughness alterations*.
 """)
         else:
             st.write("""
 - **28 March 2025, M7.7**: Major strike-slip earthquake along the Sagaing Fault near Mandalay.
-- Amplitude change detects surface disruption, debris, and ground upheaval.
-- *(Interferogram phase data is optional and not currently loaded).*
+- Backscatter analysis shows significant surface disturbance along the rupture corridor.
+- *(Optional interferogram phase data can be loaded from `data/geo.unw.tif`).*
 """)
-    with st.expander("Why NISAR"):
+
+    with st.expander("📡 Next-Generation Monitoring: Why NISAR", expanded=False):
         st.write("""
 - **Sentinel-1 (ESA)**: Operational C-band (5.5 cm) providing regular observations via Google Earth Engine.
-- **NISAR (NASA-ISRO)**: L-band (24 cm) penetrates dense vegetation canopy and resolves larger displacements (~12 cm per fringe).
-- **Capability sample**: NISAR launched in July 2025 (after the March 2025 earthquake); the NISAR layer in this tool is an illustrative sample acquired 4 Oct 2026 demonstrating L-band capability, **not** earthquake-event data.
+- **NISAR (NASA-ISRO)**: L-band (24 cm) penetrates dense vegetation canopy and resolves larger ground movements (~12 cm per fringe).
+- **Illustrative Capability Sample**: NISAR launched in July 2025 (after the March 2025 earthquake); the NISAR layer in this app is a capability sample acquired 4 Oct 2026 demonstrating L-band backscatter, **not** earthquake-event data.
 - NISAR will map global land surfaces every 12 days, enabling routine L-band monitoring.
 """)
 

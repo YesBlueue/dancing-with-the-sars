@@ -155,9 +155,22 @@ div[data-testid="stSidebar"] button:hover {
 </style>
 """, unsafe_allow_html=True)
 
+def _service_account_info():
+    # On Streamlit Community Cloud the key lives in app secrets under [gee_service_account].
+    # Locally there is usually no secrets file, so fall back to `earthengine authenticate`.
+    try:
+        return dict(st.secrets["gee_service_account"])
+    except Exception:
+        return None
+
 @st.cache_resource
 def init_ee():
-    ee.Initialize(project=GEE_PROJECT)
+    info = _service_account_info()
+    if info:
+        creds = ee.ServiceAccountCredentials(info["client_email"], key_data=json.dumps(info))
+        ee.Initialize(creds, project=GEE_PROJECT)
+    else:
+        ee.Initialize(project=GEE_PROJECT)
 
 try:
     init_ee()

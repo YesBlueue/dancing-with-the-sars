@@ -4,5 +4,6 @@ __pycache__/
 venv/
 .streamlit/secrets.toml
 
-# Large raster data (interferogram) — share separately, not via git
+# Large raster data (interferogram)
 data/*.tif
+!data/geo.unw.tif

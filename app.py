@@ -50,6 +50,8 @@ if "dates" not in st.session_state:
                               dt.date(2025, 3, 29), dt.date(2025, 4, 20))
 if "outside_warning" not in st.session_state:
     st.session_state.outside_warning = False
+if "zoomed" not in st.session_state:
+    st.session_state.zoomed = False      # False: Myanmar overview (zoom 6); True: zoom to the pin
 if "last_click" not in st.session_state:
     st.session_state.last_click = None   # last map click already handled (st_folium repeats it every rerun)
 
@@ -64,16 +66,19 @@ if col_b1.button("⭐ Mandalay (Quake)"):
     st.session_state.dates = (dt.date(2025, 3, 1), dt.date(2025, 3, 27),
                               dt.date(2025, 3, 29), dt.date(2025, 4, 20))
     st.session_state.outside_warning = False
+    st.session_state.zoomed = True
     st.rerun()
 
 if col_b2.button("📍 Yangon"):
     st.session_state.pin = (16.8661, 96.1951)
     st.session_state.outside_warning = False
+    st.session_state.zoomed = True
     st.rerun()
 
 if st.sidebar.button("📍 Naypyidaw"):
     st.session_state.pin = (19.7633, 96.0785)
     st.session_state.outside_warning = False
+    st.session_state.zoomed = True
     st.rerun()
 
 d = st.session_state.dates
@@ -87,7 +92,7 @@ radius_km = st.sidebar.slider("Analysis radius (km)", 1, 10, 5)
 thresh_db = st.sidebar.slider("Change threshold (dB)", 1.5, 6.0, 3.0, 0.5)
 
 has_ifg = os.path.exists(IFG_TIF)
-show_ifg = st.sidebar.checkbox("Show earthquake interferogram (case study)", value=False) if has_ifg else False
+show_ifg = st.sidebar.checkbox("Show interferogram (northern Sagaing Fault)", value=False) if has_ifg else False
 
 has_nisar = os.path.exists(NISAR_PNG) and os.path.exists(NISAR_JSON)
 show_nisar = st.sidebar.checkbox("Show NISAR L-band sample layer", value=False) if has_nisar else False
@@ -170,10 +175,21 @@ if st.session_state.get("outside_warning"):
 col_map, col_stats = st.columns([7, 3])
 
 with col_map:
-    # Myanmar lock: center 21.0, 96.0, zoom 6, bounds constrained
+    # Myanmar lock: overview at center 21.0, 96.0, zoom 6, bounds constrained.
+    # Zoom in once a pin/preset is chosen so the circle and change layer are visible;
+    # jump to the interferogram footprint when it is switched on (it lies north of Mandalay).
+    if has_ifg:
+        img_ifg, bounds_ifg = load_ifg(IFG_TIF)
+    if show_ifg:
+        (s_, w_), (n_, e_) = bounds_ifg
+        view, zoom = [(s_ + n_) / 2, (w_ + e_) / 2], 8
+    elif st.session_state.zoomed:
+        view, zoom = [lat, lon], 11
+    else:
+        view, zoom = list(MYANMAR_CENTER), 6
     m = folium.Map(
-        location=[lat, lon],
-        zoom_start=6,
+        location=view,
+        zoom_start=zoom,
         min_zoom=5,
         max_bounds=True,
         min_lat=MYANMAR_MIN_LAT,
@@ -190,13 +206,12 @@ with col_map:
 
     # Optional LiCSAR interferogram
     if has_ifg:
-        img_ifg, bounds_ifg = load_ifg(IFG_TIF)
         folium.raster_layers.ImageOverlay(
             img_ifg,
             bounds=bounds_ifg,
             opacity=0.7,
             mercator_project=True,
-            name="Earthquake interferogram (fringes)",
+            name="Sentinel-1 interferogram, northern Sagaing Fault (fringes)",
             show=show_ifg
         ).add_to(m)
 
@@ -227,6 +242,7 @@ with col_map:
             if MYANMAR_MIN_LAT <= click_lat <= MYANMAR_MAX_LAT and MYANMAR_MIN_LON <= click_lng <= MYANMAR_MAX_LON:
                 st.session_state.pin = new_click
                 st.session_state.outside_warning = False
+                st.session_state.zoomed = True
             else:
                 st.session_state.outside_warning = True
             st.rerun()
@@ -257,9 +273,11 @@ with col_stats:
         if has_ifg:
             st.write(f"""
 - **28 March 2025, M7.7**: Major strike-slip earthquake rupturing ~500 km of the Sagaing Fault.
-- The interferogram layer compares radar **phase** before and after (24 Mar – 5 Apr 2025).
-- **One colour cycle = {WAVELENGTH*100/2:.1f} cm** of ground movement toward/away from satellite line-of-sight.
-- This directly measures *how far the ground moved*, which brightness change alone cannot quantify.
+- The interferogram layer is a Sentinel-1 (ESA) frame processed by COMET LiCSAR over the
+  **northern Sagaing Fault (~24.2–26.9° N)**, north of Mandalay. It compares radar **phase** before and after (24 Mar – 5 Apr 2025).
+- **One colour cycle = {WAVELENGTH*100/2:.1f} cm** of ground movement toward/away from the satellite (line of sight).
+- Phase shows *how far the ground moved* along that line of sight, which brightness change alone cannot.
+  The drop-a-pin stats above are brightness change only.
 """)
         else:
             st.write("""
@@ -278,7 +296,7 @@ with col_stats:
     # Dynamic data sources attribution
     sources = ["Copernicus Sentinel-1 (ESA) via Google Earth Engine"]
     if has_ifg and show_ifg:
-        sources.append("COMET LiCSAR interferogram (24 Mar – 5 Apr 2025)")
+        sources.append("COMET LiCSAR interferogram of Sentinel-1 data, northern Sagaing Fault (24 Mar – 5 Apr 2025)")
     if has_nisar and show_nisar:
         sources.append("NASA-ISRO NISAR via ASF (acquired 4 Oct 2026)")
     st.caption("Data: " + "; ".join(sources) + ".")

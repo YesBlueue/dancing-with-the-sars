@@ -22,7 +22,7 @@ Drop-a-pin SAR change monitor locked to Myanmar, plus a case study of the 28 Mar
 - **Controls:** date pickers, radius slider (1–10 km) and threshold slider.
 - **Errors handled:** if a date range has 0 images, the app shows an error instead of crashing. If GEE fails to start, it shows a readable error.
 - **Explainer sections:** how to read radar change, the Sagaing case study, and why NISAR.
-- **Interferogram overlay code already exists** (`load_ifg()` in `app.py`). It runs only if `data/geo.unw.tif` exists, and it hasn't been tested on a real file yet.
+- **Interferogram overlay code already exists** (`load_ifg()` in `app.py`). It runs only if `data/geo.unw.tif` exists. That file has now arrived, but the overlay hasn't been tested on it yet.
 - **NISAR data delivered by the data teammate (thanks!):** `nisar_to_png.py`, `data/nisar.png` (2129×2084 RGBA, grayscale dB with a 2–98 percentile stretch), and `data/nisar_bounds.json`:
   - bounds `[[13.32, 91.47], [16.33, 94.65]]`, polarization `VVVV`
   - source: `NISAR_L2_PR_GCOV_..._20261004T231906_...h5` (acquired **4 Oct 2026**)
@@ -38,11 +38,7 @@ Drop-a-pin SAR change monitor locked to Myanmar, plus a case study of the 28 Mar
 5. **By 15:00:** a 30-second demo video (case study → second pin → toggle NISAR) and the project page.
 
 ## Needed from the data teammate
-1. **Interferogram `data/geo.unw.tif`: the only missing file, and needed by 14:00 to make the demo.**
-   - Source: a COMET LiCSAR unwrapped interferogram (`*.geo.unw.tif`) for a frame covering Mandalay / the Sagaing Fault. One date before 28 Mar 2025 and one after (e.g. a pair spanning ~2025-03-2x → 2025-04-0x).
-   - The app expects a single band of unwrapped phase in **radians**, in WGS84 (EPSG:4326, which is LiCSAR's default for `geo` files). 0 or NaN is treated as nodata. Noise near the rupture is expected.
-   - **`.gitignore` excludes `data/*.tif`**, so don't commit it. Give the app owner the file directly (USB, Drive or chat) to copy into `data/`. Try to keep it under about 50 MB because the venue internet is slow.
-   - If it can't be ready by 14:00, say so. We'll demo without it, and the app already skips it automatically.
+1. **Interferogram `data/geo.unw.tif`: received** (commit 198c69d, 32 MB, allowed through `.gitignore`). Please tell the app owner **which LiCSAR frame ID it is and which two dates it spans**. The app and the project page need these to label the layer honestly. The app expects a single band of unwrapped phase in radians, in WGS84, with 0 or NaN as nodata. The app owner will check that it renders in the right place.
 2. **Check the NISAR image's location** (low priority).
    - The PNG is saved on its native projected grid, and the bounds are the lat/lon envelope of that grid's corners. So the overlay may be slightly offset or skewed compared with a true reprojection. That's acceptable for a demo.
    - The western part (lon 91.47–92.1) falls outside the Myanmar map lock and will be clipped at the edge of the map. That's fine; no action needed.

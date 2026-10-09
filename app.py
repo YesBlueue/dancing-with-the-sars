@@ -9,6 +9,7 @@ import os
 import json
 import datetime as dt
 import numpy as np
+import pandas as pd
 import streamlit as st
 import ee
 import folium
@@ -25,6 +26,25 @@ WAVELENGTH  = 0.0555                 # Sentinel-1 C-band (m). NISAR L-band = 0.2
 MYANMAR_MIN_LAT, MYANMAR_MAX_LAT = 9.5, 28.6
 MYANMAR_MIN_LON, MYANMAR_MAX_LON = 92.1, 101.2
 MYANMAR_CENTER = (21.0, 96.0)
+
+# Sagaing Fault Tectonic Rupture Corridor (~1,200 km active dextral strike-slip system)
+SAGAING_FAULT_COORDS = [
+    [26.25, 96.35],  # Northern Kachin / Myitkyina west
+    [25.40, 96.25],  # Indawgyi corridor
+    [24.50, 96.15],  # Wuntho / Tigyaing
+    [23.70, 96.02],  # Tagaung
+    [22.85, 95.98],  # Thabeikkyin
+    [22.05, 95.97],  # Sagaing / Ava
+    [21.80, 96.00],  # South of Mandalay
+    [21.20, 96.10],  # Kyaukse / Meiktila east
+    [20.40, 96.15],  # Yamethin
+    [19.75, 96.20],  # Naypyidaw corridor
+    [18.90, 96.43],  # Toungoo
+    [18.00, 96.50],  # Nyaunglebin
+    [17.33, 96.48],  # Bago
+    [16.70, 96.55],  # Gulf of Martaban entrance
+    [15.50, 96.60],  # Andaman Sea tectonic continuation
+]
 # =======================================
 
 st.set_page_config(
@@ -34,7 +54,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling (Glassmorphism, Modern Typography, Sleek Badges)
+# Custom Styling (Glassmorphism, Modern Typography, Sleek Badges, Map Cursors)
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap');
@@ -92,21 +112,6 @@ h1, h2, h3, h4, .stTitle {
 .badge-info { background: rgba(0, 176, 255, 0.15); color: #00b0ff; border: 1px solid rgba(0, 176, 255, 0.3); }
 .badge-warning { background: rgba(255, 171, 0, 0.15); color: #ffab00; border: 1px solid rgba(255, 171, 0, 0.3); }
 
-/* Layout polish */
-.block-container { padding-top: 2.2rem; }
-.app-sub { color: #9aa4b2; font-size: 0.95rem; margin: -0.6rem 0 0.9rem 0; }
-.how-to { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.82rem; color: #b8c1cc; margin-bottom: 10px; }
-.how-to b { color: #e6edf3; }
-.kpi { border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: rgba(255,255,255,0.035);
-       border: 1px solid rgba(255,255,255,0.08); border-left-width: 4px; }
-.kpi-label { font-size: 0.78rem; color: #9aa4b2; text-transform: uppercase; letter-spacing: 0.04em; }
-.kpi-value { font-size: 1.6rem; font-weight: 600; margin-top: 2px; }
-.kpi-sub { font-size: 0.82rem; color: #b8c1cc; }
-.kpi-bright { border-left-color: #ff5252; }
-.kpi-dark { border-left-color: #448aff; }
-.share-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: rgba(255,255,255,0.08); margin: 6px 0 4px 0; }
-.share-legend { display: flex; justify-content: space-between; font-size: 0.75rem; color: #9aa4b2; }
-
 /* Quick scenario buttons */
 div[data-testid="stSidebar"] button {
     border-radius: 8px;
@@ -115,6 +120,37 @@ div[data-testid="stSidebar"] button {
 div[data-testid="stSidebar"] button:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(0, 176, 255, 0.25);
+}
+
+/* KPI cards */
+.kpi {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+}
+.kpi-bright { border-left: 4px solid #ff5252; }
+.kpi-dark   { border-left: 4px solid #448aff; }
+.kpi-label  { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: #8b949e; }
+.kpi-value  { font-size: 1.55rem; font-weight: 700; color: #e6edf3; margin-top: 2px; }
+.kpi-sub    { font-size: 0.82rem; color: #8b949e; margin-top: 2px; }
+
+/* Share bar */
+.share-bar {
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    display: flex;
+    margin: 6px 0 10px 0;
+}
+.share-legend {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: #8b949e;
+    margin-bottom: 12px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -141,7 +177,7 @@ if "dates" not in st.session_state:
 if "outside_warning" not in st.session_state:
     st.session_state.outside_warning = False
 if "zoomed" not in st.session_state:
-    st.session_state.zoomed = False      # False: Myanmar overview (zoom 6); True: zoom to the pin
+    st.session_state.zoomed = False      # true once user picks a pin/preset so map zooms in
 if "last_click" not in st.session_state:
     st.session_state.last_click = None   # last map click already handled (st_folium repeats it every rerun)
 
@@ -159,6 +195,7 @@ if col_sc1.button("🌋 Mandalay Quake", use_container_width=True):
                               dt.date(2025, 3, 29), dt.date(2025, 4, 20))
     st.session_state.outside_warning = False
     st.session_state.zoomed = True
+    st.session_state.last_click = None
     st.rerun()
 
 if col_sc2.button("🏙️ Yangon Delta", use_container_width=True):
@@ -167,6 +204,7 @@ if col_sc2.button("🏙️ Yangon Delta", use_container_width=True):
                               dt.date(2025, 3, 29), dt.date(2025, 4, 20))
     st.session_state.outside_warning = False
     st.session_state.zoomed = True
+    st.session_state.last_click = None
     st.rerun()
 
 if st.sidebar.button("🏛️ Naypyidaw Capital Corridor", use_container_width=True):
@@ -175,6 +213,7 @@ if st.sidebar.button("🏛️ Naypyidaw Capital Corridor", use_container_width=T
                               dt.date(2025, 3, 29), dt.date(2025, 4, 20))
     st.session_state.outside_warning = False
     st.session_state.zoomed = True
+    st.session_state.last_click = None
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -192,6 +231,12 @@ thresh_db = st.sidebar.slider("Change threshold (±dB)", 1.5, 6.0, 3.0, 0.5, hel
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛰️ Optional Map Overlays")
+
+show_fault = st.sidebar.checkbox(
+    "⚡ Sagaing Fault Trace (~1,200 km)",
+    value=True,
+    help="Active strike-slip tectonic plate boundary along central Myanmar."
+)
 
 has_ifg = os.path.exists(IFG_TIF)
 show_ifg = st.sidebar.checkbox(
@@ -243,12 +288,16 @@ def analyze(lat, lon, r_km, b1, b2, a1, a2, t):
         "brighter": brighter.multiply(px).reduceRegion(ee.Reducer.sum(), roi, 20, maxPixels=1e9).get("VV"),
         "darker":   darker.multiply(px).reduceRegion(ee.Reducer.sum(), roi, 20, maxPixels=1e9).get("VV"),
         "total":    px.reduceRegion(ee.Reducer.sum(), roi, 20, maxPixels=1e9).get("area"),
+        "before_mean": before.reduceRegion(ee.Reducer.mean(), roi, 50, maxPixels=1e9).get("VV"),
+        "after_mean":  after.reduceRegion(ee.Reducer.mean(), roi, 50, maxPixels=1e9).get("VV"),
     }).getInfo()
     vis_sar  = {"min": -25, "max": 0}
     vis_diff = {"min": -6, "max": 6, "palette": ["0000ff", "ffffff", "ff0000"]}
     return {
         "ok": True, "nb": nb, "na": na,
         "brighter": stats["brighter"] or 0, "darker": stats["darker"] or 0, "total": stats["total"],
+        "before_mean": stats.get("before_mean"),
+        "after_mean": stats.get("after_mean"),
         "tiles": {
             "Before (radar)": before.getMapId(vis_sar)["tile_fetcher"].url_format,
             "After (radar)":  after.getMapId(vis_sar)["tile_fetcher"].url_format,
@@ -287,16 +336,8 @@ def load_nisar(png_path, json_path):
     return img, meta["bounds"]
 
 # ---------- Main View ----------
-st.title("Dancing with the SARs — Myanmar")
-st.markdown("<div class='app-sub'>Sentinel-1 radar surface-change monitor · sees through clouds, day and night</div>",
-            unsafe_allow_html=True)
-st.markdown("""
-<div class='how-to'>
-  <span><b>1.</b> Click the map to drop a pin (drag to pan)</span>
-  <span><b>2.</b> Set before/after dates in the sidebar</span>
-  <span><b>3.</b> Read the estimated change on the right</span>
-</div>
-""", unsafe_allow_html=True)
+st.title("🛰️ Dancing with the SARs — Myanmar")
+st.markdown("##### Cloud-Penetrating Synthetic Aperture Radar (SAR) Surface Change Detection")
 
 if st.session_state.get("outside_warning"):
     st.warning("⚠️ The clicked location was outside Myanmar. The map is constrained to Myanmar territory (lat 9.5°–28.6° N, lon 92.1°–101.2° E).")
@@ -336,6 +377,18 @@ with col_map:
                 overlay=True,
                 show=name.startswith("Change")
             ).add_to(m)
+
+    # Sagaing Fault Tectonic Trace
+    if show_fault:
+        folium.PolyLine(
+            locations=SAGAING_FAULT_COORDS,
+            color="#ff1744",
+            weight=3,
+            dash_array="6, 8",
+            opacity=0.85,
+            tooltip="Sagaing Fault Trace (~1,200 km active strike-slip boundary)",
+            name="Sagaing Fault Trace"
+        ).add_to(m)
 
     # Optional LiCSAR interferogram
     if has_ifg:
@@ -379,18 +432,11 @@ with col_map:
 
     folium.LayerControl(collapsed=False).add_to(m)
 
-    # Cursor: a pin while hovering (click drops a pin), a grabbing hand while dragging the map.
-    pin_cursor = ("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='36' viewBox='0 0 28 36'>"
-                  "<path d='M14 1C7 1 2 6 2 12.5 2 21 14 35 14 35S26 21 26 12.5C26 6 21 1 14 1z' fill='%23e53935' stroke='white' stroke-width='2'/>"
-                  "<circle cx='14' cy='12.5' r='4.5' fill='white'/></svg>")
-    m.get_root().header.add_child(folium.Element(f"""
+    # Pin/grab cursor styling for map container
+    m.get_root().html.add_child(folium.Element("""
 <style>
-.leaflet-container.leaflet-grab, .leaflet-container {{ cursor: url("{pin_cursor}") 14 35, crosshair; }}
-.leaflet-dragging .leaflet-container, .leaflet-dragging .leaflet-grab,
-.leaflet-container.leaflet-drag-target {{ cursor: grabbing !important; }}
-.leaflet-control-container, .leaflet-control-container * {{ cursor: auto; }}
-.leaflet-control-container a, .leaflet-control-container label, .leaflet-control-container input {{ cursor: pointer; }}
-.leaflet-marker-icon, .leaflet-interactive {{ cursor: pointer; }}
+  .leaflet-container { cursor: crosshair !important; }
+  .leaflet-dragging .leaflet-container { cursor: grabbing !important; }
 </style>"""))
 
     out = st_folium(m, height=620, use_container_width=True, returned_objects=["last_clicked"])
@@ -472,6 +518,22 @@ with col_stats:
         </div>
         """, unsafe_allow_html=True)
 
+        # Quantitative Backscatter Amplitude Meter
+        bm = res.get("before_mean")
+        am = res.get("after_mean")
+        if bm is not None and am is not None:
+            delta_db = am - bm
+            sign = "+" if delta_db > 0 else ""
+            st.markdown(f"""
+            <div style='background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;'>
+                <div style='font-size: 0.75rem; color: #888; text-transform: uppercase;'>Regional Mean Backscatter Shift</div>
+                <div style='display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px;'>
+                    <span style='font-size: 1.15rem; font-weight: 600; color: {"#ff5252" if delta_db > 0 else "#448aff"};'>{sign}{delta_db:.2f} dB</span>
+                    <span style='font-size: 0.8rem; color: #aaa;'>Before: <b>{bm:.1f} dB</b> → After: <b>{am:.1f} dB</b></span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
         st.caption(f"Estimated from {res['nb']} before and {res['na']} after Sentinel-1 (ESA) passes. Values are satellite backscatter estimates, not ground-truth damage surveys.")
 
         # Export Analysis Summary
@@ -489,7 +551,10 @@ with col_stats:
                 "brighter_km2": round(res["brighter"], 2),
                 "darker_km2": round(res["darker"], 2),
                 "brighter_percentage": round(brighter_pct, 1),
-                "darker_percentage": round(darker_pct, 1)
+                "darker_percentage": round(darker_pct, 1),
+                "before_mean_db": round(bm, 2) if bm is not None else None,
+                "after_mean_db": round(am, 2) if am is not None else None,
+                "delta_mean_db": round(delta_db, 2) if (bm is not None and am is not None) else None
             },
             "satellite_passes": {"before_count": res["nb"], "after_count": res["na"]}
         }
@@ -505,8 +570,8 @@ with col_stats:
     st.markdown("---")
     with st.expander("📖 How to read radar backscatter change", expanded=False):
         st.write("""
-- **Backscatter**: Measures the microwave radar intensity reflected back to the sensor.
-- **Brighter (+dB)**: Surface became rougher or more vertical (e.g. collapsed masonry, rubble, cracked earth, new structural surfaces).
+- **Backscatter**: Measures microwave radar intensity bounced back to the antenna.
+- **Brighter (+dB)**: Surface became rougher or more vertical (e.g. collapsed masonry, debris piles, ground fissures, new structural surfaces).
 - **Darker (-dB)**: Surface became smoother or absorbed microwaves (e.g. standing water, smooth sediment, cleared ground).
 - **All-Weather Capability**: Penetrates dense clouds and darkness, delivering mission-critical situational awareness when optical satellites fail.
 """)
@@ -528,12 +593,27 @@ with col_stats:
 - *(Optional interferogram phase data can be loaded from `data/geo.unw.tif`).*
 """)
 
-    with st.expander("📡 Next-Generation Monitoring: Why NISAR", expanded=False):
-        st.write("""
-- **Sentinel-1 (ESA)**: Operational C-band (5.5 cm) providing regular observations via Google Earth Engine.
-- **NISAR (NASA-ISRO)**: L-band (24 cm) penetrates dense vegetation canopy and resolves larger ground movements (~12 cm per fringe).
-- **Illustrative Capability Sample**: NISAR launched in July 2025 (after the March 2025 earthquake); the NISAR layer in this app is a capability sample acquired 4 Oct 2026 demonstrating L-band backscatter, **not** earthquake-event data.
-- NISAR will map global land surfaces every 12 days, enabling routine L-band monitoring.
+    with st.expander("🔬 Technology Deep-Dive: NISAR L-Band vs Sentinel-1 C-Band", expanded=False):
+        st.markdown("""
+| Feature / Parameter | Copernicus Sentinel-1 (C-Band) | NASA-ISRO NISAR (L-Band) |
+| :--- | :--- | :--- |
+| **Radar Band & Wavelength** | C-band ($5.55\\text{ cm}$) | L-band ($24.2\\text{ cm}$) |
+| **Vegetation Penetration** | Scatters off top leaves & canopy | **Penetrates dense tropical canopy** to bare ground |
+| **Phase Fringe Scale ($\\lambda/2$)** | $\\approx 2.8\\text{ cm}$ per cycle | $\\approx 12.1\\text{ cm}$ per cycle |
+| **Deformation Limit** | Decorrelates rapidly across large shifts | **Maintains coherence across large slip events** |
+| **Revisit Frequency** | 12 days | 12 days exact repeat over global land |
+
+**Why this matters for Myanmar**:
+Myanmar possesses some of mainland Southeast Asia's densest tropical monsoon canopies (e.g., Kachin, Shan hills, Tanintharyi). Sentinel-1 C-band decorrelates rapidly over forested rural terrain. NISAR's L-band penetrates canopy cover directly to the ground, enabling all-weather coherence retention.
+""")
+
+    with st.expander("⏱️ 2025 Sagaing Event Chronology & Satellite Timeline", expanded=False):
+        st.markdown("""
+- **24 March 2025**: Sentinel-1 pre-quake baseline pass (LiCSAR master acquisition).
+- **28 March 2025 12:45 UTC**: **M7.7 Sagaing Fault Earthquake** ruptures $\\approx 500\\text{ km}$ across central Myanmar.
+- **05 April 2025**: Sentinel-1 post-quake pass (LiCSAR slave acquisition completing the interferogram pair).
+- **July 2025**: NASA-ISRO NISAR satellite launched into low-Earth orbit.
+- **04 October 2026**: NASA-ISRO NISAR L-band sample pass acquired over coastal Myanmar (`P05023`), proving L-band operational readiness.
 """)
 
     # Dynamic data sources attribution

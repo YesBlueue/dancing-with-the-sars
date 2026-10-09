@@ -9,7 +9,6 @@ import os
 import json
 import datetime as dt
 import numpy as np
-import pandas as pd
 import streamlit as st
 import ee
 import folium
@@ -92,6 +91,21 @@ h1, h2, h3, h4, .stTitle {
 .badge-active { background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); }
 .badge-info { background: rgba(0, 176, 255, 0.15); color: #00b0ff; border: 1px solid rgba(0, 176, 255, 0.3); }
 .badge-warning { background: rgba(255, 171, 0, 0.15); color: #ffab00; border: 1px solid rgba(255, 171, 0, 0.3); }
+
+/* Layout polish */
+.block-container { padding-top: 2.2rem; }
+.app-sub { color: #9aa4b2; font-size: 0.95rem; margin: -0.6rem 0 0.9rem 0; }
+.how-to { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.82rem; color: #b8c1cc; margin-bottom: 10px; }
+.how-to b { color: #e6edf3; }
+.kpi { border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: rgba(255,255,255,0.035);
+       border: 1px solid rgba(255,255,255,0.08); border-left-width: 4px; }
+.kpi-label { font-size: 0.78rem; color: #9aa4b2; text-transform: uppercase; letter-spacing: 0.04em; }
+.kpi-value { font-size: 1.6rem; font-weight: 600; margin-top: 2px; }
+.kpi-sub { font-size: 0.82rem; color: #b8c1cc; }
+.kpi-bright { border-left-color: #ff5252; }
+.kpi-dark { border-left-color: #448aff; }
+.share-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: rgba(255,255,255,0.08); margin: 6px 0 4px 0; }
+.share-legend { display: flex; justify-content: space-between; font-size: 0.75rem; color: #9aa4b2; }
 
 /* Quick scenario buttons */
 div[data-testid="stSidebar"] button {
@@ -273,8 +287,16 @@ def load_nisar(png_path, json_path):
     return img, meta["bounds"]
 
 # ---------- Main View ----------
-st.title("🛰️ Dancing with the SARs — Myanmar")
-st.markdown("##### Cloud-Penetrating Synthetic Aperture Radar (SAR) Surface Change Detection")
+st.title("Dancing with the SARs — Myanmar")
+st.markdown("<div class='app-sub'>Sentinel-1 radar surface-change monitor · sees through clouds, day and night</div>",
+            unsafe_allow_html=True)
+st.markdown("""
+<div class='how-to'>
+  <span><b>1.</b> Click the map to drop a pin (drag to pan)</span>
+  <span><b>2.</b> Set before/after dates in the sidebar</span>
+  <span><b>3.</b> Read the estimated change on the right</span>
+</div>
+""", unsafe_allow_html=True)
 
 if st.session_state.get("outside_warning"):
     st.warning("⚠️ The clicked location was outside Myanmar. The map is constrained to Myanmar territory (lat 9.5°–28.6° N, lon 92.1°–101.2° E).")
@@ -357,6 +379,20 @@ with col_map:
 
     folium.LayerControl(collapsed=False).add_to(m)
 
+    # Cursor: a pin while hovering (click drops a pin), a grabbing hand while dragging the map.
+    pin_cursor = ("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='36' viewBox='0 0 28 36'>"
+                  "<path d='M14 1C7 1 2 6 2 12.5 2 21 14 35 14 35S26 21 26 12.5C26 6 21 1 14 1z' fill='%23e53935' stroke='white' stroke-width='2'/>"
+                  "<circle cx='14' cy='12.5' r='4.5' fill='white'/></svg>")
+    m.get_root().header.add_child(folium.Element(f"""
+<style>
+.leaflet-container.leaflet-grab, .leaflet-container {{ cursor: url("{pin_cursor}") 14 35, crosshair; }}
+.leaflet-dragging .leaflet-container, .leaflet-dragging .leaflet-grab,
+.leaflet-container.leaflet-drag-target {{ cursor: grabbing !important; }}
+.leaflet-control-container, .leaflet-control-container * {{ cursor: auto; }}
+.leaflet-control-container a, .leaflet-control-container label, .leaflet-control-container input {{ cursor: pointer; }}
+.leaflet-marker-icon, .leaflet-interactive {{ cursor: pointer; }}
+</style>"""))
+
     out = st_folium(m, height=620, use_container_width=True, returned_objects=["last_clicked"])
     if out and out.get("last_clicked"):
         click_lat = round(out["last_clicked"]["lat"], 4)
@@ -414,28 +450,27 @@ with col_stats:
         unchanged = max(0, tot - res["brighter"] - res["darker"])
         unchanged_pct = 100 * unchanged / tot
 
-        st.metric(
-            label="Estimated Brighter (Debris, Fissures, Structures)",
-            value=f"{res['brighter']:.2f} km²",
-            delta=f"{brighter_pct:.1f}% of region",
-            delta_color="inverse"
-        )
-
-        st.metric(
-            label="Estimated Darker (Standing Water, Flattened)",
-            value=f"{res['darker']:.2f} km²",
-            delta=f"{darker_pct:.1f}% of region",
-            delta_color="off"
-        )
-
-        # Visual Area Breakdown Chart
-        chart_data = pd.DataFrame({
-            "Classification": ["Brighter (+dB)", "Darker (-dB)", "Unchanged"],
-            "Area (km²)": [round(res["brighter"], 2), round(res["darker"], 2), round(unchanged, 2)],
-        })
-
-        st.caption("Surface Change Proportional Breakdown:")
-        st.bar_chart(chart_data.set_index("Classification"), height=160, color="#00b0ff")
+        st.markdown(f"""
+        <div class='kpi kpi-bright'>
+            <div class='kpi-label'>Estimated brighter area</div>
+            <div class='kpi-value'>{res['brighter']:.2f} km²</div>
+            <div class='kpi-sub'>{brighter_pct:.1f}% of circle · debris, fissures, new structures</div>
+        </div>
+        <div class='kpi kpi-dark'>
+            <div class='kpi-label'>Estimated darker area</div>
+            <div class='kpi-value'>{res['darker']:.2f} km²</div>
+            <div class='kpi-sub'>{darker_pct:.1f}% of circle · standing water, flattened ground</div>
+        </div>
+        <div class='kpi-label' style='margin-top:4px;'>Share of {tot:.1f} km² circle</div>
+        <div class='share-bar'>
+            <div style='width:{brighter_pct:.2f}%; background:#ff5252;'></div>
+            <div style='width:{darker_pct:.2f}%; background:#448aff;'></div>
+        </div>
+        <div class='share-legend'>
+            <span>■ <span style='color:#ff5252'>brighter</span> · <span style='color:#448aff'>darker</span></span>
+            <span>{unchanged_pct:.1f}% unchanged</span>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.caption(f"Estimated from {res['nb']} before and {res['na']} after Sentinel-1 (ESA) passes. Values are satellite backscatter estimates, not ground-truth damage surveys.")
 

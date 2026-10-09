@@ -50,6 +50,8 @@ if "dates" not in st.session_state:
                               dt.date(2025, 3, 29), dt.date(2025, 4, 20))
 if "outside_warning" not in st.session_state:
     st.session_state.outside_warning = False
+if "last_click" not in st.session_state:
+    st.session_state.last_click = None   # last map click already handled (st_folium repeats it every rerun)
 
 # ---------- Sidebar ----------
 st.sidebar.title("🛰️ Myanmar SAR Change Detector")
@@ -219,15 +221,15 @@ with col_map:
     if out and out.get("last_clicked"):
         click_lat = round(out["last_clicked"]["lat"], 4)
         click_lng = round(out["last_clicked"]["lng"], 4)
-        new_pin = (click_lat, click_lng)
-        if new_pin != st.session_state.pin:
+        new_click = (click_lat, click_lng)
+        if new_click != st.session_state.last_click:
+            st.session_state.last_click = new_click
             if MYANMAR_MIN_LAT <= click_lat <= MYANMAR_MAX_LAT and MYANMAR_MIN_LON <= click_lng <= MYANMAR_MAX_LON:
-                st.session_state.pin = new_pin
+                st.session_state.pin = new_click
                 st.session_state.outside_warning = False
-                st.rerun()
             else:
                 st.session_state.outside_warning = True
-                st.rerun()
+            st.rerun()
 
 with col_stats:
     st.subheader("📊 Estimated Change in Area")

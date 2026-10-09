@@ -169,8 +169,19 @@ def init_ee():
     if info:
         creds = ee.ServiceAccountCredentials(info["client_email"], key_data=json.dumps(info))
         ee.Initialize(creds, project=GEE_PROJECT)
-    else:
-        ee.Initialize(project=GEE_PROJECT)
+        return
+
+    # Support for Streamlit Cloud via token in secrets
+    try:
+        if hasattr(st, "secrets") and "EARTHENGINE_CREDENTIALS" in st.secrets:
+            ee_dir = os.path.expanduser("~/.config/earthengine")
+            os.makedirs(ee_dir, exist_ok=True)
+            with open(os.path.join(ee_dir, "credentials"), "w") as fp:
+                fp.write(st.secrets["EARTHENGINE_CREDENTIALS"])
+    except Exception:
+        pass
+
+    ee.Initialize(project=GEE_PROJECT)
 
 try:
     init_ee()

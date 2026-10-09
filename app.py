@@ -14,7 +14,7 @@ import folium
 from streamlit_folium import st_folium
 
 # ============ FILL THESE IN ============
-GEE_PROJECT = "your-gee-cloud-project-id"
+GEE_PROJECT = "engaged-oarlock-432211-q9"
 IFG_TIF     = "data/geo.unw.tif"     # optional: LiCSAR interferogram for the Sagaing case study
 WAVELENGTH  = 0.0555                 # Sentinel-1 C-band (m). NISAR L-band = 0.242
 # =======================================

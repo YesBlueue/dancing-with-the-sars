@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.streamlit/secrets.toml
+
+# Large raster data (interferogram) — share separately, not via git
+data/*.tif
